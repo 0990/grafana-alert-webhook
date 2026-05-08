@@ -1,0 +1,16 @@
+{
+    "listen": ":1111",
+    "pushers": [
+        {
+            "name": "default-wecom",
+            "type": "wecom",
+            "enabled": true,
+            "config": {
+                "corpid": "wwxxxxxxxxxxxxxxxx",
+                "corpsecret": "your-wecom-app-secret",
+                "agentid": 1000002,
+                "touserdefault": "UserID"
+            }
+        }
+    ]
+}
