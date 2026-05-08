@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"io/ioutil"
+	"io"
 	log "log"
 	"net/http"
 
@@ -12,7 +12,7 @@ import (
 
 var confFile = flag.String("c", "config.json", "config file")
 
-var wxPusher *WXPusher
+var pushService *PushService
 
 func main() {
 	flag.Parse()
@@ -23,7 +23,11 @@ func main() {
 		return
 	}
 
-	wxPusher = &WXPusher{cfg: *cfg}
+	pushService, err = NewPushService(*cfg)
+	if err != nil {
+		log.Print(err)
+		return
+	}
 
 	http.HandleFunc("/grafana_alert", handleGrafanaAlert)
 	http.HandleFunc("/send", handleSend)
@@ -33,7 +37,7 @@ func main() {
 }
 
 func handleGrafanaAlert(w http.ResponseWriter, r *http.Request) {
-	data, err := ioutil.ReadAll(r.Body)
+	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "body read error")
 		return
@@ -54,8 +58,9 @@ func handleGrafanaAlert(w http.ResponseWriter, r *http.Request) {
 
 	toUser := r.FormValue("touser")
 	toTag := r.FormValue("totag")
+	target := PushTarget{ToUser: toUser, ToTag: toTag}
 
-	err = wxPusher.Send(message, toUser, toTag)
+	err = pushService.Send(message, target)
 	if err != nil {
 		log.Print(err)
 		respondError(w, http.StatusBadGateway, err.Error())
@@ -69,7 +74,8 @@ func handleSend(w http.ResponseWriter, r *http.Request) {
 	content := r.FormValue("content")
 	toUser := r.FormValue("touser")
 	toTag := r.FormValue("totag")
-	err := wxPusher.Send(content, toUser, toTag)
+	target := PushTarget{ToUser: toUser, ToTag: toTag}
+	err := pushService.Send(content, target)
 	if err != nil {
 		log.Print(err)
 		respondError(w, http.StatusBadGateway, err.Error())

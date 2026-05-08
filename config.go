@@ -6,12 +6,34 @@ import (
 	"os"
 )
 
-type Config struct{
-	Listen string `json:"listen"`
-	CorpID string `json:"corpid"`
-	CorpSecret string `json:"corpsecret"`
-	AgentId int `json:"agentid"`
-	ToUserDefault string `json:"touserdefault"`
+type Config struct {
+	Listen  string         `json:"listen"`
+	Pushers []PusherConfig `json:"pushers,omitempty"`
+
+	CorpID        string `json:"corpid,omitempty"`
+	CorpSecret    string `json:"corpsecret,omitempty"`
+	AgentID       int    `json:"agentid,omitempty"`
+	ToUserDefault string `json:"touserdefault,omitempty"`
+}
+
+type PusherConfig struct {
+	Name    string          `json:"name"`
+	Type    string          `json:"type"`
+	Enabled *bool           `json:"enabled,omitempty"`
+	Config  json.RawMessage `json:"config,omitempty"`
+	WeCom   WeComConfig     `json:"wecom,omitempty"`
+}
+
+type WeComConfig struct {
+	CorpID        string `json:"corpid"`
+	CorpSecret    string `json:"corpsecret"`
+	AgentID       int    `json:"agentid"`
+	ToUserDefault string `json:"touserdefault,omitempty"`
+	ToTagDefault  string `json:"totagdefault,omitempty"`
+}
+
+func (p PusherConfig) IsEnabled() bool {
+	return p.Enabled == nil || *p.Enabled
 }
 
 func readOrCreateCfg(path string) (*Config, error) {
@@ -41,10 +63,58 @@ func readCfg(path string) (*Config, error) {
 		return nil, err
 	}
 
+	conf.normalize()
 	return &conf, nil
 }
 
 func createCfg(path string) error {
-	c, _ := json.MarshalIndent(Config{}, "", "    ")
+	c, _ := json.MarshalIndent(defaultCfg(), "", "    ")
 	return ioutil.WriteFile(path, c, 0644)
+}
+
+func defaultCfg() Config {
+	enabled := true
+	return Config{
+		Listen: ":1111",
+		Pushers: []PusherConfig{
+			{
+				Name:    "default-wecom",
+				Type:    "wecom",
+				Enabled: &enabled,
+				Config:  rawConfig(WeComConfig{}),
+			},
+		},
+	}
+}
+
+func (c *Config) normalize() {
+	if c.Listen == "" {
+		c.Listen = ":1111"
+	}
+	if len(c.Pushers) > 0 {
+		return
+	}
+	if c.CorpID == "" && c.CorpSecret == "" && c.AgentID == 0 && c.ToUserDefault == "" {
+		return
+	}
+
+	enabled := true
+	c.Pushers = []PusherConfig{
+		{
+			Name:    "default-wecom",
+			Type:    "wecom",
+			Enabled: &enabled,
+			Config: rawConfig(WeComConfig{
+				CorpID:        c.CorpID,
+				CorpSecret:    c.CorpSecret,
+				AgentID:       c.AgentID,
+				ToUserDefault: c.ToUserDefault,
+			}),
+		},
+	}
+}
+
+func rawConfig(value interface{}) json.RawMessage {
+	data, _ := json.Marshal(value)
+	return data
 }
