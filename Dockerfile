@@ -23,4 +23,4 @@ COPY --from=build /out/grafana-alert-webhook /usr/local/bin/grafana-alert-webhoo
 
 EXPOSE 1111
 
-CMD ["grafana-alert-webhook", "-c", "/etc/grafana-alert/webhook/config.json"]
+CMD ["grafana-alert-webhook", "-c", "/etc/grafana-alert-webhook/config.json"]
