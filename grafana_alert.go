@@ -55,24 +55,18 @@ func (p *GrafanaAlertMsg) Summary() (string, error) {
 		return strings.Join(lines, "\n"), nil
 	}
 
-	if status := strings.TrimSpace(p.Status); status != "" {
-		lines = append(lines, "Status: "+status)
-	}
-
 	for i, alert := range p.Alerts {
-		lines = append(lines, p.alertSummaryLine(i, alert))
-
-		if labels := formatStringMap(alert.Labels, "alertname", 5); labels != "" {
-			lines = append(lines, "Labels: "+labels)
-		}
-		if values := formatValues(alert.Values); values != "" {
-			lines = append(lines, "Values: "+values)
+		if len(p.Alerts) > 1 {
+			lines = append(lines, p.alertSummaryLine(i, alert))
 		}
 		if summary := annotationText(alert.Annotations); summary != "" {
 			lines = append(lines, summary)
 		}
-		if link := alertLink(alert); link != "" {
-			lines = append(lines, "URL: "+link)
+		if values := formatValues(alert.Values); values != "" {
+			lines = append(lines, "Values: "+values)
+		}
+		if labels := formatLabels(alert.Labels); labels != "" {
+			lines = append(lines, "Labels:\n"+labels)
 		}
 	}
 
@@ -84,7 +78,7 @@ func (p *GrafanaAlertMsg) Summary() (string, error) {
 }
 
 func (p *GrafanaAlertMsg) summaryTitle() string {
-	if title := strings.TrimSpace(p.Title); title != "" {
+	if title := strings.TrimSpace(p.Title); title != "" && len(p.Alerts) == 0 {
 		return title
 	}
 
@@ -148,37 +142,32 @@ func annotationText(annotations map[string]string) string {
 	}
 }
 
-func alertLink(alert GrafanaAlert) string {
-	return firstNonEmpty(
-		strings.TrimSpace(alert.GeneratorURL),
-		strings.TrimSpace(alert.PanelURL),
-		strings.TrimSpace(alert.DashboardURL),
-	)
-}
+func formatLabels(values map[string]string) string {
+	hidden := map[string]struct{}{
+		"alertname":      {},
+		"grafana_folder": {},
+		"job":            {},
+		"mountpoint":     {},
+	}
 
-func formatStringMap(values map[string]string, skipKey string, limit int) string {
 	if len(values) == 0 {
 		return ""
 	}
 
 	keys := make([]string, 0, len(values))
 	for key, value := range values {
-		if key == skipKey || strings.TrimSpace(value) == "" {
+		if _, ok := hidden[key]; ok || strings.TrimSpace(value) == "" {
 			continue
 		}
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 
-	if limit > 0 && len(keys) > limit {
-		keys = keys[:limit]
-	}
-
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
 		parts = append(parts, key+"="+values[key])
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "\n")
 }
 
 func formatValues(values map[string]interface{}) string {

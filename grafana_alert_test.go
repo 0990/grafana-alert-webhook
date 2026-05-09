@@ -78,14 +78,15 @@ func TestGrafanaAlertSummaryOfficialPayload(t *testing.T) {
 		t.Fatalf("summary: %v", err)
 	}
 
-	assertContains(t, summary, "[FIRING:2]  (blue)")
+	assertContains(t, summary, "[FIRING:2] High memory usage")
 	assertContains(t, summary, "1. High memory usage (firing)")
-	assertContains(t, summary, "Labels: team=blue zone=us-1")
-	assertContains(t, summary, "Values: B=44.24 C=1")
 	assertContains(t, summary, "Summary: This alert was triggered for zone us-1")
 	assertContains(t, summary, "Description: The system has high memory usage")
-	assertContains(t, summary, "URL: https://play.grafana.org/alerting/1afz29v7z/edit")
+	assertContains(t, summary, "Values: B=44.24 C=1")
+	assertContains(t, summary, "Labels:\nteam=blue\nzone=us-1")
 	assertContains(t, summary, "2. High CPU usage (firing)")
+	assertNotContains(t, summary, "Status:")
+	assertNotContains(t, summary, "URL:")
 }
 
 func TestGrafanaAlertSummaryFallbackTitle(t *testing.T) {
@@ -114,9 +115,62 @@ func TestGrafanaAlertSummaryFallbackTitle(t *testing.T) {
 	}
 
 	assertContains(t, summary, "[FIRING:1] Disk full")
-	assertContains(t, summary, "Alert: Disk full (firing)")
-	assertContains(t, summary, "Labels: instance=db-01")
 	assertContains(t, summary, "Values: A=93 B=93.46 C=critical")
+	assertContains(t, summary, "Labels:\ninstance=db-01")
+	assertNotContains(t, summary, "Alert:")
+}
+
+func TestGrafanaAlertSummaryDiskUsageFormat(t *testing.T) {
+	msg := GrafanaAlertMsg{
+		Status:       "firing",
+		CommonLabels: map[string]string{"alertname": "diskUsage"},
+		Alerts: []GrafanaAlert{
+			{
+				Status: "firing",
+				Labels: map[string]string{
+					"alertname":      "diskUsage",
+					"device":         "/dev/vda1",
+					"fstype":         "ext4",
+					"grafana_folder": "node-explorer",
+					"instance":       "100.107.246.119:9100",
+					"instance_name":  "jp-release",
+					"job":            "node",
+					"mountpoint":     "/",
+				},
+				Annotations: map[string]string{
+					"summary": "diskusage > 80%",
+				},
+				GeneratorURL: "http://localhost:3000/alerting/grafana/bflavt67fkqv4d/view?orgId=1",
+				Values: map[string]interface{}{
+					"A": 92.19,
+					"C": 1,
+				},
+			},
+		},
+		Title: "[FIRING:1] diskUsage  node-explorer (/dev/vda1 ext4 100.107.246.119:9100 jp-release node /)",
+	}
+
+	summary, err := msg.Summary()
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+
+	expected := `[FIRING:1] diskUsage
+Summary: diskusage > 80%
+Values: A=92.19 C=1
+Labels:
+device=/dev/vda1
+fstype=ext4
+instance=100.107.246.119:9100
+instance_name=jp-release`
+
+	if summary != expected {
+		t.Fatalf("unexpected summary:\nwant:\n%s\n\ngot:\n%s", expected, summary)
+	}
+	assertNotContains(t, summary, "grafana_folder")
+	assertNotContains(t, summary, "job=")
+	assertNotContains(t, summary, "mountpoint=")
+	assertNotContains(t, summary, "URL:")
 }
 
 func TestGrafanaAlertSummaryResolved(t *testing.T) {
@@ -137,8 +191,8 @@ func TestGrafanaAlertSummaryResolved(t *testing.T) {
 	}
 
 	assertContains(t, summary, "[RESOLVED:1] CPU high")
-	assertContains(t, summary, "Alert: CPU high (resolved)")
 	assertContains(t, summary, "Summary: CPU recovered")
+	assertNotContains(t, summary, "Alert:")
 }
 
 func TestGrafanaAlertSummaryWithoutAlertsAllowsTitleMessage(t *testing.T) {
@@ -207,5 +261,12 @@ func assertContains(t *testing.T, value, expected string) {
 	t.Helper()
 	if !strings.Contains(value, expected) {
 		t.Fatalf("expected summary to contain %q\nsummary:\n%s", expected, value)
+	}
+}
+
+func assertNotContains(t *testing.T, value, unexpected string) {
+	t.Helper()
+	if strings.Contains(value, unexpected) {
+		t.Fatalf("expected summary not to contain %q\nsummary:\n%s", unexpected, value)
 	}
 }
