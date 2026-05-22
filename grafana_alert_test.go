@@ -230,10 +230,10 @@ func TestLegacyPayloadIsInvalid(t *testing.T) {
 }
 
 func TestHandleGrafanaAlertRejectsInvalidJSON(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/grafana_alert", strings.NewReader("{"))
+	req := httptest.NewRequest(http.MethodPost, "/wecom/grafana_alert", strings.NewReader("{"))
 	rec := httptest.NewRecorder()
 
-	handleGrafanaAlert(rec, req)
+	handleGrafanaAlertByType("wecom")(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
@@ -242,19 +242,58 @@ func TestHandleGrafanaAlertRejectsInvalidJSON(t *testing.T) {
 }
 
 func TestHandleGrafanaAlertRejectsLegacyPayload(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/grafana_alert", strings.NewReader(`{
+	req := httptest.NewRequest(http.MethodPost, "/wecom/grafana_alert", strings.NewReader(`{
 		"evalMatches": [{"value": 10, "metric": "cpu"}],
 		"ruleName": "Legacy CPU",
 		"state": "alerting"
 	}`))
 	rec := httptest.NewRecorder()
 
-	handleGrafanaAlert(rec, req)
+	handleGrafanaAlertByType("wecom")(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
 	}
 	assertContains(t, rec.Body.String(), "invalid grafana webhook payload")
+}
+
+func TestHandleSendByTypeUsesTypedPusherAndTarget(t *testing.T) {
+	oldPushService := pushService
+	t.Cleanup(func() {
+		pushService = oldPushService
+	})
+
+	wecom := &recordingPusher{}
+	xiaoShan := &recordingPusher{}
+	pushService = &PushService{
+		pushers: []namedPusher{
+			{typ: "wecom", name: "wecom", pusher: wecom},
+			{typ: "xiaoshan", name: "xiaoshan", pusher: xiaoShan},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/xiaoshan/send?content=hello&touser=u1,u2&atall=true&atmobiles=13800000000,13900000000", nil)
+	rec := httptest.NewRecorder()
+
+	handleSendByType("xiaoshan")(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if len(wecom.messages) != 0 {
+		t.Fatalf("expected wecom pusher not to be called, got %d calls", len(wecom.messages))
+	}
+	if len(xiaoShan.messages) != 1 || xiaoShan.messages[0] != "hello" {
+		t.Fatalf("unexpected xiaoshan calls: %+v", xiaoShan.messages)
+	}
+
+	target := xiaoShan.targets[0]
+	if target.ToUser != "u1,u2" || !target.AtAll {
+		t.Fatalf("unexpected target: %+v", target)
+	}
+	if len(target.AtMobiles) != 2 || target.AtMobiles[0] != "13800000000" || target.AtMobiles[1] != "13900000000" {
+		t.Fatalf("unexpected at mobiles: %+v", target.AtMobiles)
+	}
 }
 
 func assertContains(t *testing.T, value, expected string) {

@@ -1,16 +1,20 @@
 {
     "listen": ":1111",
-    "pushers": [
-        {
-            "name": "default-wecom",
-            "type": "wecom",
-            "enabled": true,
-            "config": {
-                "corpid": "wwxxxxxxxxxxxxxxxx",
-                "corpsecret": "your-wecom-app-secret",
-                "agentid": 1000002,
-                "touserdefault": "UserID"
-            }
-        }
-    ]
+    "wecom": {
+        "enable": true,
+        "corpid": "wwxxxxxxxxxxxxxxxx",
+        "corpsecret": "your-wecom-app-secret",
+        "agentid": 1000002,
+        "touserdefault": "UserID",
+        "totagdefault": ""
+    },
+    "xiaoshan": {
+        "enable": false,
+        "accesstoken": "your-xiaoshan-access-token",
+        "secret": "your-xiaoshan-secret",
+        "msgtype": "text",
+        "atall": false,
+        "atuserids": [],
+        "atmobiles": []
+    }
 }

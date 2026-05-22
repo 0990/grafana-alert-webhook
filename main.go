@@ -6,6 +6,7 @@ import (
 	"io"
 	log "log"
 	"net/http"
+	"strconv"
 
 	"github.com/sirupsen/logrus"
 )
@@ -29,14 +30,22 @@ func main() {
 		return
 	}
 
-	http.HandleFunc("/grafana_alert", handleGrafanaAlert)
-	http.HandleFunc("/send", handleSend)
+	http.HandleFunc("/wecom/grafana_alert", handleGrafanaAlertByType("wecom"))
+	http.HandleFunc("/wecom/send", handleSendByType("wecom"))
+	http.HandleFunc("/xiaoshan/grafana_alert", handleGrafanaAlertByType("xiaoshan"))
+	http.HandleFunc("/xiaoshan/send", handleSendByType("xiaoshan"))
 
 	err = http.ListenAndServe(cfg.Listen, nil)
 	log.Print(err)
 }
 
-func handleGrafanaAlert(w http.ResponseWriter, r *http.Request) {
+func handleGrafanaAlertByType(pusherType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		handleGrafanaAlertPush(pusherType, w, r)
+	}
+}
+
+func handleGrafanaAlertPush(pusherType string, w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "body read error")
@@ -56,11 +65,9 @@ func handleGrafanaAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	toUser := r.FormValue("touser")
-	toTag := r.FormValue("totag")
-	target := PushTarget{ToUser: toUser, ToTag: toTag}
+	target := requestPushTarget(r)
 
-	err = pushService.Send(message, target)
+	err = pushService.SendByType(pusherType, message, target)
 	if err != nil {
 		log.Print(err)
 		respondError(w, http.StatusBadGateway, err.Error())
@@ -70,18 +77,32 @@ func handleGrafanaAlert(w http.ResponseWriter, r *http.Request) {
 	respond(w, 0, "ok")
 }
 
-func handleSend(w http.ResponseWriter, r *http.Request) {
+func handleSendByType(pusherType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		handleSendPush(pusherType, w, r)
+	}
+}
+
+func handleSendPush(pusherType string, w http.ResponseWriter, r *http.Request) {
 	content := r.FormValue("content")
-	toUser := r.FormValue("touser")
-	toTag := r.FormValue("totag")
-	target := PushTarget{ToUser: toUser, ToTag: toTag}
-	err := pushService.Send(content, target)
+	target := requestPushTarget(r)
+	err := pushService.SendByType(pusherType, content, target)
 	if err != nil {
 		log.Print(err)
 		respondError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	respond(w, 0, "ok")
+}
+
+func requestPushTarget(r *http.Request) PushTarget {
+	atAll, _ := strconv.ParseBool(r.FormValue("atall"))
+	return PushTarget{
+		ToUser:    r.FormValue("touser"),
+		ToTag:     r.FormValue("totag"),
+		AtAll:     atAll,
+		AtMobiles: splitList(r.FormValue("atmobiles")),
+	}
 }
 
 func respondError(w http.ResponseWriter, statusCode int, message string) {

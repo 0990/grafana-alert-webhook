@@ -1,15 +1,16 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 )
 
 type PushTarget struct {
-	ToUser string
-	ToTag  string
+	ToUser    string
+	ToTag     string
+	AtAll     bool
+	AtMobiles []string
 }
 
 type Pusher interface {
@@ -21,6 +22,7 @@ type PushService struct {
 }
 
 type namedPusher struct {
+	typ    string
 	name   string
 	pusher Pusher
 }
@@ -28,29 +30,19 @@ type namedPusher struct {
 func NewPushService(cfg Config) (*PushService, error) {
 	service := &PushService{}
 
-	for _, pusherCfg := range cfg.Pushers {
-		if !pusherCfg.IsEnabled() {
-			continue
-		}
-
-		name := strings.TrimSpace(pusherCfg.Name)
-		if name == "" {
-			name = pusherCfg.Type
-		}
-
-		switch pusherCfg.Type {
-		case "wecom":
-			wecomCfg, err := pusherCfg.WeComConfig()
-			if err != nil {
-				return nil, fmt.Errorf("%s config: %w", name, err)
-			}
-			service.pushers = append(service.pushers, namedPusher{
-				name:   name,
-				pusher: &WXPusher{cfg: wecomCfg},
-			})
-		default:
-			return nil, fmt.Errorf("unsupported pusher type %q", pusherCfg.Type)
-		}
+	if cfg.WeCom.Enable {
+		service.pushers = append(service.pushers, namedPusher{
+			typ:    "wecom",
+			name:   "wecom",
+			pusher: &WXPusher{cfg: cfg.WeCom},
+		})
+	}
+	if cfg.XiaoShan.Enable {
+		service.pushers = append(service.pushers, namedPusher{
+			typ:    "xiaoshan",
+			name:   "xiaoshan",
+			pusher: &XiaoShanPusher{cfg: cfg.XiaoShan},
+		})
 	}
 
 	return service, nil
@@ -70,14 +62,28 @@ func (s *PushService) Send(text string, target PushTarget) error {
 	return errors.Join(errs...)
 }
 
-func (p PusherConfig) WeComConfig() (WeComConfig, error) {
-	if len(p.Config) == 0 {
-		return p.WeCom, nil
+func (s *PushService) SendByType(pusherType, text string, target PushTarget) error {
+	if strings.TrimSpace(pusherType) == "" {
+		return s.Send(text, target)
+	}
+	if s == nil || len(s.pushers) == 0 {
+		return errors.New("no enabled pushers configured")
 	}
 
-	var cfg WeComConfig
-	if err := json.Unmarshal(p.Config, &cfg); err != nil {
-		return WeComConfig{}, err
+	pusherType = strings.ToLower(strings.TrimSpace(pusherType))
+	var matched int
+	var errs []error
+	for _, pusher := range s.pushers {
+		if pusher.typ != pusherType {
+			continue
+		}
+		matched++
+		if err := pusher.pusher.Send(text, target); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", pusher.name, err))
+		}
 	}
-	return cfg, nil
+	if matched == 0 {
+		return fmt.Errorf("no enabled pushers configured for type %q", pusherType)
+	}
+	return errors.Join(errs...)
 }

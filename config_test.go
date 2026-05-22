@@ -5,23 +5,28 @@ import (
 	"testing"
 )
 
-func TestConfigUnmarshalNewPusherShape(t *testing.T) {
+func TestConfigUnmarshalTopLevelPushers(t *testing.T) {
 	payload := `{
 		"listen": ":1111",
-		"pushers": [
-			{
-				"name": "ops-wecom",
-				"type": "wecom",
-				"enabled": true,
-				"config": {
-					"corpid": "corp",
-					"corpsecret": "secret",
-					"agentid": 1000002,
-					"touserdefault": "ops",
-					"totagdefault": "grafana"
-				}
-			}
-		]
+		"wecom": {
+			"enable": true,
+			"corpid": "corp",
+			"corpsecret": "secret",
+			"agentid": 1000002,
+			"touserdefault": "ops",
+			"totagdefault": "grafana"
+		},
+		"xiaoshan": {
+			"enable": true,
+			"webhook_url": "https://example.com/robot/webhook/v2",
+			"access_token": "token",
+			"secret": "secret",
+			"msg_type": "markdown",
+			"at_all": true,
+			"at_userids": ["u1"],
+			"at_mobiles": ["13800000000"],
+			"max_text_length": 1200
+		}
 	}`
 
 	var cfg Config
@@ -33,78 +38,68 @@ func TestConfigUnmarshalNewPusherShape(t *testing.T) {
 	if cfg.Listen != ":1111" {
 		t.Fatalf("expected listen :1111, got %q", cfg.Listen)
 	}
-	if len(cfg.Pushers) != 1 {
-		t.Fatalf("expected 1 pusher, got %d", len(cfg.Pushers))
+	if !cfg.WeCom.Enable {
+		t.Fatal("expected wecom to be enabled")
 	}
-	pusher := cfg.Pushers[0]
-	if pusher.Name != "ops-wecom" || pusher.Type != "wecom" || !pusher.IsEnabled() {
-		t.Fatalf("unexpected pusher metadata: %+v", pusher)
+	if cfg.WeCom.CorpID != "corp" || cfg.WeCom.AgentID != 1000002 || cfg.WeCom.ToTagDefault != "grafana" {
+		t.Fatalf("unexpected wecom config: %+v", cfg.WeCom)
 	}
-	wecomCfg, err := pusher.WeComConfig()
-	if err != nil {
-		t.Fatalf("wecom config: %v", err)
+	if !cfg.XiaoShan.Enable {
+		t.Fatal("expected xiaoshan to be enabled")
 	}
-	if wecomCfg.CorpID != "corp" || wecomCfg.AgentID != 1000002 || wecomCfg.ToTagDefault != "grafana" {
-		t.Fatalf("unexpected wecom config: %+v", wecomCfg)
+	if cfg.XiaoShan.URL != "https://example.com/robot/webhook/v2" {
+		t.Fatalf("unexpected xiaoshan url: %q", cfg.XiaoShan.URL)
+	}
+	if cfg.XiaoShan.AccessToken != "token" || cfg.XiaoShan.Secret != "secret" || cfg.XiaoShan.MsgType != "markdown" {
+		t.Fatalf("unexpected xiaoshan config: %+v", cfg.XiaoShan)
+	}
+	if !cfg.XiaoShan.AtAll {
+		t.Fatal("expected xiaoshan at all to be true")
+	}
+	if len(cfg.XiaoShan.AtUserIDs) != 1 || cfg.XiaoShan.AtUserIDs[0] != "u1" {
+		t.Fatalf("unexpected xiaoshan at user ids: %+v", cfg.XiaoShan.AtUserIDs)
+	}
+	if len(cfg.XiaoShan.AtMobiles) != 1 || cfg.XiaoShan.AtMobiles[0] != "13800000000" {
+		t.Fatalf("unexpected xiaoshan at mobiles: %+v", cfg.XiaoShan.AtMobiles)
+	}
+	if cfg.XiaoShan.MaxTextLength != 1200 {
+		t.Fatalf("unexpected xiaoshan max text length: %d", cfg.XiaoShan.MaxTextLength)
 	}
 }
 
-func TestConfigNormalizeLegacyWeComShape(t *testing.T) {
-	cfg := Config{
-		Listen:        ":2222",
-		CorpID:        "corp",
-		CorpSecret:    "secret",
-		AgentID:       1000003,
-		ToUserDefault: "legacy-user",
-	}
+func TestConfigNormalizeDefaultListen(t *testing.T) {
+	cfg := Config{}
 
 	cfg.normalize()
 
-	if len(cfg.Pushers) != 1 {
-		t.Fatalf("expected 1 migrated pusher, got %d", len(cfg.Pushers))
-	}
-	pusher := cfg.Pushers[0]
-	if pusher.Type != "wecom" || !pusher.IsEnabled() {
-		t.Fatalf("unexpected migrated pusher metadata: %+v", pusher)
-	}
-	wecomCfg, err := pusher.WeComConfig()
-	if err != nil {
-		t.Fatalf("wecom config: %v", err)
-	}
-	if wecomCfg.CorpID != "corp" || wecomCfg.CorpSecret != "secret" || wecomCfg.AgentID != 1000003 {
-		t.Fatalf("unexpected migrated wecom config: %+v", wecomCfg)
-	}
-	if wecomCfg.ToUserDefault != "legacy-user" {
-		t.Fatalf("expected legacy default user, got %q", wecomCfg.ToUserDefault)
+	if cfg.Listen != ":1111" {
+		t.Fatalf("expected default listen :1111, got %q", cfg.Listen)
 	}
 }
 
-func TestNewPushServiceRejectsUnsupportedType(t *testing.T) {
-	cfg := Config{
-		Pushers: []PusherConfig{
-			{
-				Name: "unknown",
-				Type: "unknown",
-			},
+func TestNewPushServiceUsesTopLevelEnabledConfigs(t *testing.T) {
+	service, err := NewPushService(Config{
+		WeCom: WeComConfig{
+			Enable: true,
 		},
+		XiaoShan: XiaoShanConfig{
+			Enable: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("new push service: %v", err)
 	}
 
-	if _, err := NewPushService(cfg); err == nil {
-		t.Fatal("expected unsupported pusher type error")
+	if len(service.pushers) != 2 {
+		t.Fatalf("expected 2 pushers, got %d", len(service.pushers))
+	}
+	if service.pushers[0].typ != "wecom" || service.pushers[1].typ != "xiaoshan" {
+		t.Fatalf("unexpected pushers: %+v", service.pushers)
 	}
 }
 
 func TestPushServiceSendWithoutEnabledPushers(t *testing.T) {
-	disabled := false
-	service, err := NewPushService(Config{
-		Pushers: []PusherConfig{
-			{
-				Name:    "disabled-wecom",
-				Type:    "wecom",
-				Enabled: &disabled,
-			},
-		},
-	})
+	service, err := NewPushService(Config{})
 	if err != nil {
 		t.Fatalf("new push service: %v", err)
 	}
