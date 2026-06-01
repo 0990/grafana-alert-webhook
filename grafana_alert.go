@@ -65,8 +65,17 @@ func (p *GrafanaAlertMsg) Summary() (string, error) {
 		if values := formatValues(alert.Values); values != "" {
 			lines = append(lines, "Values: "+values)
 		}
-		if labels := formatLabels(alert.Labels); labels != "" {
-			lines = append(lines, "Labels:\n"+labels)
+
+		if labels, count := formatLabels(alert.Labels); count > 0 {
+			if count == 1 {
+				lines = append(lines, "Labels:"+labels)
+			} else {
+				lines = append(lines, "Labels:\n"+labels)
+			}
+		}
+
+		if alert.GeneratorURL != "" {
+			lines = append(lines, alert.GeneratorURL)
 		}
 	}
 
@@ -142,7 +151,7 @@ func annotationText(annotations map[string]string) string {
 	}
 }
 
-func formatLabels(values map[string]string) string {
+func formatLabels(values map[string]string) (string, int) {
 	hidden := map[string]struct{}{
 		"alertname":      {},
 		"grafana_folder": {},
@@ -151,7 +160,7 @@ func formatLabels(values map[string]string) string {
 	}
 
 	if len(values) == 0 {
-		return ""
+		return "", 0
 	}
 
 	keys := make([]string, 0, len(values))
@@ -167,7 +176,7 @@ func formatLabels(values map[string]string) string {
 	for _, key := range keys {
 		parts = append(parts, key+"="+values[key])
 	}
-	return strings.Join(parts, "\n")
+	return strings.Join(parts, "\n"), len(parts)
 }
 
 func formatValues(values map[string]interface{}) string {
