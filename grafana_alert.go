@@ -77,6 +77,10 @@ func (p *GrafanaAlertMsg) Summary() (string, error) {
 		if alert.GeneratorURL != "" {
 			lines = append(lines, alert.GeneratorURL)
 		}
+
+		if alert.DashboardURL != "" {
+			lines = append(lines, "Dashboard:\n"+alert.DashboardURL)
+		}
 	}
 
 	if p.TruncatedAlerts > 0 {
